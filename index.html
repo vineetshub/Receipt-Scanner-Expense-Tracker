@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Receipt Scanner & Expense Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #4299e1;
+            background-color: #f7fafc;
+        }
+        .upload-area.dragover {
+            border-color: #4299e1;
+            background-color: #ebf8ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-2">📸 AI Receipt Scanner</h1>
+            <p class="text-gray-600">Upload your receipts and let AI extract the details automatically</p>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Upload Receipt</h2>
+            <div id="uploadArea" class="upload-area rounded-lg p-8 text-center cursor-pointer">
+                <div class="text-6xl mb-4">📄</div>
+                <p class="text-gray-600 mb-2">Drag & drop your receipt here</p>
+                <p class="text-sm text-gray-500">or click to browse</p>
+                <input type="file" id="fileInput" accept="image/*,.pdf" class="hidden">
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6 hidden">
+            <h2 class="text-2xl font-semibold mb-4">Extracted Information</h2>
+            <div id="receiptData" class="space-y-4">
+                <!-- Data will be populated here -->
+            </div>
+        </div>
+
+        <!-- Loading Section -->
+        <div id="loading" class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6 hidden">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p class="text-gray-600">Processing your receipt with AI...</p>
+                <p class="text-sm text-gray-500 mt-2">This may take 10-30 seconds</p>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="error" class="max-w-2xl mx-auto bg-red-50 border border-red-200 rounded-lg p-4 mt-4 hidden">
+            <div class="flex items-center">
+                <div class="text-red-600 mr-3">⚠️</div>
+                <div>
+                    <p class="text-red-800 font-medium">Error</p>
+                    <p id="errorMessage" class="text-red-600 text-sm"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="max-w-2xl mx-auto bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+            <div class="flex items-center">
+                <div class="text-blue-600 mr-3">ℹ️</div>
+                <div>
+                    <p class="text-blue-800 font-medium">Instructions</p>
+                    <p class="text-blue-600 text-sm">Make sure your backend server is running on port 5001. Run <code class="bg-blue-100 px-1 rounded">cd backend && npm start</code> to start the server.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const results = document.getElementById('results');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const errorMessage = document.getElementById('errorMessage');
+        const receiptData = document.getElementById('receiptData');
+
+        // Backend API URL
+        const API_BASE_URL = 'http://localhost:5001';
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            // Hide previous results and errors
+            results.classList.add('hidden');
+            error.classList.add('hidden');
+            
+            // Show loading
+            loading.classList.remove('hidden');
+
+            try {
+                // Create FormData for file upload
+                const formData = new FormData();
+                formData.append('receipt', file);
+
+                // Upload file to backend
+                const response = await axios.post(`${API_BASE_URL}/api/receipts/upload`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    },
+                    timeout: 60000 // 60 second timeout
+                });
+
+                if (response.data.success) {
+                    displayResults(response.data.data.parsedData);
+                } else {
+                    throw new Error(response.data.error || 'Failed to process receipt');
+                }
+
+            } catch (err) {
+                console.error('Error processing receipt:', err);
+                showError(err.message || 'Failed to process receipt. Make sure the backend server is running.');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            error.classList.remove('hidden');
+        }
+
+        function displayResults(data) {
+            // Validate data structure
+            if (!data || typeof data !== 'object') {
+                showError('Invalid data received from server');
+                return;
+            }
+
+            // Ensure all required fields exist with fallbacks
+            const safeData = {
+                merchant: data.merchant || 'Unknown',
+                date: data.date || 'Unknown',
+                items: Array.isArray(data.items) ? data.items : [],
+                subtotal: parseFloat(data.subtotal) || 0,
+                tax: parseFloat(data.tax) || 0,
+                total: parseFloat(data.total) || 0,
+                category: data.category || 'Other',
+                paymentMethod: data.paymentMethod || 'Unknown'
+            };
+
+            receiptData.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h3 class="font-semibold text-gray-700 mb-2">Merchant</h3>
+                        <p class="text-lg">${safeData.merchant}</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h3 class="font-semibold text-gray-700 mb-2">Date</h3>
+                        <p class="text-lg">${safeData.date}</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h3 class="font-semibold text-gray-700 mb-2">Category</h3>
+                        <p class="text-lg">${safeData.category}</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h3 class="font-semibold text-gray-700 mb-2">Total</h3>
+                        <p class="text-lg font-bold text-green-600">$${safeData.total.toFixed(2)}</p>
+                    </div>
+                </div>
+                
+                ${safeData.items.length > 0 ? `
+                <div class="mt-6">
+                    <h3 class="font-semibold text-gray-700 mb-3">Items</h3>
+                    <div class="space-y-2">
+                        ${safeData.items.map(item => `
+                            <div class="flex justify-between py-2 border-b border-gray-200">
+                                <span>${item.name || 'Unknown Item'}</span>
+                                <span class="font-medium">$${(parseFloat(item.price) || 0).toFixed(2)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>Subtotal:</span>
+                        <span>$${safeData.subtotal.toFixed(2)}</span>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>Tax:</span>
+                        <span>$${safeData.tax.toFixed(2)}</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-bold text-green-600">
+                        <span>Total:</span>
+                        <span>$${safeData.total.toFixed(2)}</span>
+                    </div>
+                    ${safeData.paymentMethod && safeData.paymentMethod !== 'Unknown' ? `
+                    <div class="flex justify-between text-sm text-gray-600 mt-2">
+                        <span>Payment Method:</span>
+                        <span>${safeData.paymentMethod}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            results.classList.remove('hidden');
+        }
+
+        // Test backend connection on page load
+        window.addEventListener('load', async () => {
+            try {
+                await axios.get(`${API_BASE_URL}/api/receipts`, { timeout: 5000 });
+                console.log('Backend server is running');
+            } catch (err) {
+                console.warn('Backend server not accessible:', err.message);
+                showError('Backend server is not running. Please start it with: cd backend && npm start');
+            }
+        });
+    </script>
+</body>
+</html> 
